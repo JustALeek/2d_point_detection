@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  db:
+    image: mariadb:11
+    container_name: geom-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: geom_test
+      MYSQL_USER: testuser
+      MYSQL_PASSWORD: testpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    image: python:3.11
+    container_name: geom-app
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app
+      - ./images:/images
+    working_dir: /app
+    command: sleep infinity
+    environment:
+      DB_HOST: db
+      DB_NAME: geom_test
+      DB_USER: testuser
+      DB_PASSWORD: testpass
+
+volumes:
+  db_data:

@@ -1,3 +1,4 @@
+from tkinter import filedialog
 import cv2
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
@@ -10,6 +11,7 @@ from scipy.interpolate import splprep, splev
 import shapely
 import os
 import mariadb
+import tkinter as tk
 
 # ============================================================
 # DATA LOADING & PARSING
@@ -976,6 +978,23 @@ if __name__ == "__main__":
     xml_path = r"C:\Users\user\Downloads\2d_point_detection\annotations.xml"
     point_xml_path = r"C:\Users\user\Downloads\2d_point_detection\pred\IMG_161122.xml"  # optional
 
+    root = tk.Tk()
+    root.withdraw() 
+    
+    file_path = filedialog.askopenfilename(
+        initialdir="/", # Start directory (e.g., C:/ on Windows, / on Linux/macOS)
+        title="Select a File",
+        filetypes=(("Text files", "*.txt"), ("All files", "*.*"))
+    )
+    
+    # Print the selected file path
+    if file_path:
+        print("Selected file:", file_path)
+    else:
+        print("No file selected.")
+    
+    # Destroy the hidden root window after selection
+    root.destroy()
     visualize_2d_error(
         image_path,
         xml_path,
