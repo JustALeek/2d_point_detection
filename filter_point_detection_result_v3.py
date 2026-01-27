@@ -1029,8 +1029,6 @@ def visualize_2d_error(img, polygons, connected_points, connected_inner_points, 
         print("SAVE BUTTON WAS CLICKED")
         DataLoader.save_data(img, polygons, connected_points, connected_inner_points, slider_values)
 
-    ax_bsave = plt.axes([0.925, 0.1, 0.05, 0.1])
-    bsave = Button(ax_bsave, 'Save', color="grey")
     bsave.on_clicked(on_save_click)
 
 # ============================================================
@@ -1073,5 +1071,8 @@ if __name__ == "__main__":
     bquit.on_clicked(on_quit_click)
     fig.canvas.mpl_connect('close_event', on_quit_click)
 
+    ax_bsave = plt.axes([0.925, 0.1, 0.05, 0.1])
+    bsave = Button(ax_bsave, 'Save', color="grey")
+    
     plt.show()
     conn.close()
