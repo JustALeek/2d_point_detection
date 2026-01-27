@@ -909,7 +909,7 @@ def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None,
     
     # Component alignment
     matches, stitching_alignment_closest_boundary = ComponentProcessor.alignment_match(polygons)
-
+    print(matches)
     fig, ax = plt.subplots(figsize=(8, 8))
     plt.subplots_adjust(left=0.05, right =0.95, top=0.95, bottom=0.25)
 
@@ -968,8 +968,8 @@ def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None,
 if __name__ == "__main__":
     image_path = r"C:\Users\user\Downloads\2d_point_detection\orig_img\IMG_161122.jpg"
     xml_path = r"C:\Users\user\Downloads\2d_point_detection\annotations.xml"
-    point_xml_path = r"C:\Users\user\Downloads\2d_point_detection\pred\IMG_161122.xml"  # optional
-    save_path = r"C:\Users\user\Downloads\2d_point_detection\processed"
+    point_xml_path = r"C:\Users\user\Downloads\2d_point_detection\xml\IMG_161122.xml"  # optional
+    save_path = r"C:\Users\user\Downloads\2d_point_detection\result.jpg"
 
     visualize_2d_error(
         image_path,

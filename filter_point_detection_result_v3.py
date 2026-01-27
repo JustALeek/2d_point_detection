@@ -1,3 +1,5 @@
+import json
+import time
 from tkinter import filedialog
 import cv2
 import xml.etree.ElementTree as ET
@@ -19,6 +21,28 @@ import tkinter as tk
 
 class DataLoader:
     @staticmethod
+    def open_image():
+        image_path = DataLoader.ask_for_image()
+
+        if not image_path:
+            print("No file selected.")
+            return
+        
+        cur.execute("SELECT xml_path, has_saved FROM images WHERE img_path = '%s';", (image_path,))
+        row = cur.fetchone()
+        xml_path, has_saved = row if row else (None, None)
+
+        if not xml_path:
+            print("I need the AI implemented in order to process images without xml files or saved data.")
+            return
+
+        img = DataLoader.load_image(image_path)
+        data, start_time, msg = DataLoader.get_2d_data(image_path, xml_path, has_saved)
+        end_time = time.time(msg, str())
+        fig.suptitle(f"{msg} {end_time - start_time:.2f} seconds")
+        visualize_2d_error(img, data)
+
+    @staticmethod
     def load_image(image_path):
         img = cv2.imread(image_path)
         if img is None:
@@ -34,6 +58,7 @@ class DataLoader:
             polygons      : list of dict {id, polygon, label}
             points        : stitching points
             inner_points  : inner stitching points
+            debug_fits    : best fit lines used to process overlap points
         """
         image_name = os.path.basename(image_path)
 
@@ -56,15 +81,16 @@ class DataLoader:
             label = poly.attrib.get("label", "unknown")
             polygons.append({"id": i, "polygon": Polygon(coords), "label": label})
 
-        if point_xml_path:
-            tree = ET.parse(point_xml_path)
-            root = tree.getroot()
+        # Wont need anymore? Maybe? Depends on whether or not manual points r supported
+        # if point_xml_path:
+        #     tree = ET.parse(point_xml_path)
+        #     root = tree.getroot()
 
-            image_tag = None
-            for img_tag in root.findall("image"):
-                if img_tag.attrib.get("name") == image_name:
-                    image_tag = img_tag
-                    break
+        #     image_tag = None
+        #     for img_tag in root.findall("image"):
+        #         if img_tag.attrib.get("name") == image_name:
+        #             image_tag = img_tag
+        #             break
         
         points, inner_points, overlap_points = [], [], []
         for pt in image_tag.findall(".//points"):
@@ -84,13 +110,9 @@ class DataLoader:
                     "label": label,
                     "point": Point(x, y)
                 })
-        resolved_overlap, debug_fits = DataLoader.resolve_overlaps(overlap_points, points, inner_points, polygons)
+        resolved_overlap, debug_fits = StitchingProcessor.resolve_overlaps(overlap_points, points, inner_points, polygons)
         points.extend([p for p in resolved_overlap if p["label"] == "point"])
         inner_points.extend([p for p in resolved_overlap if p["label"] == "inner"])
-
-        # slider_values = {}
-        # for slider_value in root.findall("slider_variables"):
-        #     slider_values[slider_value.attrib["name"]] = slider_value.attrib["value"]
 
         return polygons, points, inner_points, debug_fits
 
@@ -100,84 +122,100 @@ class DataLoader:
         global_min_x = min(b[0] for b in all_bounds)
         global_max_x = max(b[2] for b in all_bounds)
         return global_max_x - global_min_x
+
+    def load_dbdata(img_path):
+        #Loading polygons
+        cur.execute("""
+            SELECT polygon_index, label, vertices
+            FROM polygons
+            WHERE img_path = %s
+            ORDER BY polygon_index
+            """, (img_path,))
+
+        polygons = []
+        for polygon_index, label, vertices_json in cur:
+            coords = [(x, y) for x, y in vertices_json]
+            polygons.append({
+                "id": polygon_index,
+                "polygon": Polygon(coords),
+                "label": label
+            })
+
+        #Loading points
+        connected_points = DataLoader.load_points(img_path, "connected_points")
+        connected_inner_points = DataLoader.load_points(img_path, "connected_inner_points")
+
+        #Loading slider values
+        cur.execute("""
+            SELECT buffer_distance,
+                neighbour_margin_factor,
+                boundary_margin_factor,
+                max_connected_line_dist,
+                max_component_offset_distance,
+                max_stitching_offset_distance
+            FROM slider_values
+            WHERE img_path = %s
+        """, (img_path,))
+
+        row = cur.fetchone()
+
+        slider_values = {key: float(value) if value is not None else None for key, value in row.items()}
+        return polygons, connected_points, connected_inner_points, slider_values
+    
+
+    def get_2d_data(image_path, xml_path, has_saved):
+        start_time = time.time()
+        if has_saved:
+            return process_raw_points(image_path, xml_path), start_time, "Loaded Manually! Time Taken: "
+        return DataLoader.load_dbdata(image_path), start_time, "Loaded from Database! Time Taken: "
     
     @staticmethod
-    def best_model_distance(point, neighbors):
-        """
-        Returns the smallest distance between a point and the neighbours' PCA line & quadratic curve
-        """
-        best = np.inf
+    def load_points(img_path, table_name):
+        cur.execute(f"""
+            SELECT boundary_linestring, point_index, point_x, point_y,
+                sorting_distance, projected_point_x, projected_point_y, distance
+            FROM {table_name}
+            WHERE img_path = %s
+            ORDER BY boundary_linestring, point_index
+        """, (img_path,))
 
-        # PCA line
-        pca = StitchingProcessor.fit_line_pca(neighbors)
-        if pca:
-            d = StitchingProcessor.point_line_distance(point, pca[0], pca[1])
-            best = min(best, d)
+        points = {}
 
-        # Quadratic
-        quad = StitchingProcessor.fit_local_quadratic(neighbors)
-        if quad:
-            d = quad(point)
-            best = min(best, d)
-
-        return best
-    
-    def resolve_overlaps(overlap_points,points,inner_points, polygons, k=6, confidence_ratio=0.4):
-        """
-        Iteratively resolve overlap points.
-
-        Each resolved overlap point becomes part of the neighbor set.
-        """
-
-        # Convert to simple Point lists
-        point_neighbors = [p["point"] for p in points]
-        inner_neighbors = [p["point"] for p in inner_points]
-
-        # Sort overlap points by proximity to existing points
-        def nearest_labeled_distance(op):
-            p = op["point"]
-            d1 = min([p.distance(q) for q in point_neighbors], default=np.inf)
-            d2 = min([p.distance(q) for q in inner_neighbors], default=np.inf)
-            return min(d1, d2)
-
-        overlap_sorted = sorted(overlap_points, key=nearest_labeled_distance)
-
-        resolved = []
-        debug_geometries = []
-
-        for op in overlap_sorted:
-            p = op["point"]
-
-            # Recollect knn each time an overlay point is processed
-            pn = StitchingProcessor.k_nearest_neighbors(p, point_neighbors, k, polygons)
-            inn = StitchingProcessor.k_nearest_neighbors(p, inner_neighbors, k, polygons)
-
-            d_p, geom_p = GeometryProcessor.best_model_with_geometry(p, pn)
-            d_i, geom_i = GeometryProcessor.best_model_with_geometry(p, inn)
-
-            if d_p < confidence_ratio * d_i:
-                op["label"] = "point"
-                point_neighbors.append(p)
-                debug_geometries.append(geom_p)
+        # Group points by boundary
+        for boundary_json, _, x, y, sorting_distance, px, py, dist in cur:
+            # Convert JSON string to Python list if needed
+            if isinstance(boundary_json, str):
+                coords = json.loads(boundary_json)
             else:
-                op["label"] = "inner"
-                inner_neighbors.append(p)
-                debug_geometries.append(geom_i)
+                coords = boundary_json  # already a list
 
-            resolved.append(op)
+            line = LineString(coords)
+            points[line].append({
+                "point": Point(float(x), float(y)),
+                "sorting_distance": float(sorting_distance),
+                "projected_point": Point(float(px), float(py)),
+                "distance": float(dist),
+            })
 
-        return resolved, debug_geometries
+        return points
     
-    #@staticmethod
-    #def save_visualization_to_database():
-        # conn = mariadb.connect(
-        #     user="db_user",
-        #     password="db_user_passwd",
-        #     host="somehost",
-        #     database="something")
-        # cur = conn.cursor() 
-        #!!!DO NOT RUN TS UNTIL FURTHER CONFIRMATION!!!
-    
+    @staticmethod
+    def save_data(img, polygons, connected_points, connected_inner_points, slider_values):
+        print("Saving")
+
+    def ask_for_image():
+        root = tk.Tk()
+        root.withdraw() 
+
+        image_path = filedialog.askopenfilename(
+            initialdir=r"C:\Users\user\Downloads\2d_point_detection\orig_img", # Start directory (e.g., C:/ on Windows, / on Linux/macOS)
+            title="Select a File",
+            filetypes=(("Image files", "*.jpg"), ("All files", "*.*"))
+        )
+
+        root.destroy()
+        return image_path
+        
 # ============================================================
 # GEOMETRY PROCESSING
 # ============================================================
@@ -185,7 +223,7 @@ class DataLoader:
 class GeometryProcessor:
     """
     Geometric utilities: polygon containment, simplification, splitting.
-    """
+    """    
     @staticmethod
     def pca_line_geometry(points, length=200):
         res = StitchingProcessor.fit_line_pca(points)
@@ -352,6 +390,53 @@ class StitchingProcessor:
     """
     Ordering and grouping stitching points along boundaries.
     """
+    @staticmethod
+    def resolve_overlaps(overlap_points,points,inner_points, polygons, k=6, confidence_ratio=0.4):
+        """
+        Iteratively resolve overlap points.
+
+        Each resolved overlap point becomes part of the neighbor set.
+        """
+
+        # Convert to simple Point lists
+        point_neighbors = [p["point"] for p in points]
+        inner_neighbors = [p["point"] for p in inner_points]
+
+        # Sort overlap points by proximity to existing points
+        def nearest_labeled_distance(op):
+            p = op["point"]
+            d1 = min([p.distance(q) for q in point_neighbors], default=np.inf)
+            d2 = min([p.distance(q) for q in inner_neighbors], default=np.inf)
+            return min(d1, d2)
+
+        overlap_sorted = sorted(overlap_points, key=nearest_labeled_distance)
+
+        resolved = []
+        debug_geometries = []
+
+        for op in overlap_sorted:
+            p = op["point"]
+
+            # Recollect knn each time an overlay point is processed
+            pn = StitchingProcessor.k_nearest_neighbors(p, point_neighbors, k, polygons)
+            inn = StitchingProcessor.k_nearest_neighbors(p, inner_neighbors, k, polygons)
+
+            d_p, geom_p = GeometryProcessor.best_model_with_geometry(p, pn)
+            d_i, geom_i = GeometryProcessor.best_model_with_geometry(p, inn)
+
+            if d_p < confidence_ratio * d_i:
+                op["label"] = "point"
+                point_neighbors.append(p)
+                debug_geometries.append(geom_p)
+            else:
+                op["label"] = "inner"
+                inner_neighbors.append(p)
+                debug_geometries.append(geom_i)
+
+            resolved.append(op)
+
+        return resolved, debug_geometries
+    
     @staticmethod
     def k_nearest_neighbors(center_pt, candidates, k, polygons):
         """
@@ -884,47 +969,35 @@ class VisualizationProcessor:
 # ============================================================
 # VISUALIZATION PIPELINE
 # ============================================================
-
-def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None, save_path=None):
-    img = DataLoader.load_image(image_path)
-
-    polygons, points, inner_points, debug_fits = DataLoader.parse_xml(xml_path, image_path, point_xml_path)
+def process_raw_points(image_path, xml_path):
+    polygons, points, inner_points, debug_fits = DataLoader.parse_xml(xml_path, image_path)
 
     if width_2d is None:
         width_2d = DataLoader.get_2d_width(polygons)
 
-    buffer_distance = int(width_2d / 402)
-    neighbour_margin_factor = 330
-    boundary_margin_factor = 330
-    max_connected_line_dist = 40
-    max_component_offset_distance = 210
-    max_stitching_offset_distance = 630
-    
+    #initial slider values
+    slider_values = {
+        "buffer_distance": 402,
+        "neighbour_margin_factor": 330,
+        "boundary_margin_factor": 330,
+        "max_connected_line_dist": 40,
+        "max_component_offset_distance": 210,
+        "max_stitching_offset_distance": 630
+    }
+
     mapping_points = GeometryProcessor.assign_points_to_polygons(points, polygons)
     mapping_inner_points = GeometryProcessor.assign_points_to_polygons(inner_points, polygons)
-    combined = GeometryProcessor.combined_geometry(polygons, buffer_distance)
+    combined = GeometryProcessor.combined_geometry(polygons, width_2d/slider_values["buffer_distance"])
     
     connected_points = StitchingProcessor.process_point_groups(polygons, points, mapping_points, combined)
     connected_inner_points = StitchingProcessor.process_point_groups(polygons, inner_points, mapping_inner_points, combined)
-    #TODO: These should also be able to be loaded directly from db
-    
+    return polygons, connected_points, connected_inner_points, slider_values
+
+def visualize_2d_error(img, polygons, connected_points, connected_inner_points, slider_values):
     # Component alignment
+    width_2d = DataLoader.get_2d_width(polygons)
+
     matches, stitching_alignment_closest_boundary = ComponentProcessor.alignment_match(polygons)
-
-    fig, ax = plt.subplots(figsize=(8, 8))
-    plt.subplots_adjust(left=0.05, right =0.95, top=0.95, bottom=0.25)
-
-    ax_neigh = plt.axes([0.2, 0.21, 0.6, 0.03])
-    ax_bound = plt.axes([0.2, 0.17, 0.6, 0.03])
-    ax_line  = plt.axes([0.2, 0.13, 0.6, 0.03])
-    ax_comp  = plt.axes([0.2, 0.09, 0.6, 0.03])
-    ax_stitch= plt.axes([0.2, 0.05, 0.6, 0.03])
-
-    s_neigh = Slider(ax_neigh, "Neighbour Margin", 165, 660, valinit=neighbour_margin_factor)
-    s_bound = Slider(ax_bound, "Boundary Margin", 165, 660, valinit=boundary_margin_factor)
-    s_line  = Slider(ax_line,  "Max Line Dist", 20, 80, valinit=max_connected_line_dist)
-    s_comp  = Slider(ax_comp, "Max Comp Offset Dist", 105, 420, valinit=max_component_offset_distance)
-    s_stitch= Slider(ax_stitch, "Max Stitching Offset Dist", 315, 1260, valinit=max_stitching_offset_distance)
 
     def update(val):
         s_neigh.valtext.set_text(f"width_2d({int(width_2d)})/{int(s_neigh.val)}")
@@ -952,51 +1025,53 @@ def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None,
     s_stitch.on_changed(update)
     update(0.0)
 
-    def save_data(val):
+    def on_save_click(val):
         print("SAVE BUTTON WAS CLICKED")
-        # DataLoader.save_visualization_to_xml()
+        DataLoader.save_data(img, polygons, connected_points, connected_inner_points, slider_values)
 
     ax_bsave = plt.axes([0.925, 0.1, 0.05, 0.1])
     bsave = Button(ax_bsave, 'Save', color="grey")
-    bsave.on_clicked(save_data)
-
-    def open_image(val):
-        print("OPEN BUTTON WAS CLICKED")
-
-    ax_bopen = plt.axes([0.925, 0.2, 0.05, 0.1])
-    bopen = Button(ax_bopen, 'Open', color="grey")
-    bopen.on_clicked(open_image)
-
-    plt.show()
+    bsave.on_clicked(on_save_click)
 
 # ============================================================
 # MAIN
 # ============================================================
 
 if __name__ == "__main__":
-    image_path = r"C:\Users\user\Downloads\2d_point_detection\orig_img\IMG_161122.jpg"
-    xml_path = r"C:\Users\user\Downloads\2d_point_detection\annotations.xml"
-    point_xml_path = r"C:\Users\user\Downloads\2d_point_detection\pred\IMG_161122.xml"  # optional
+    #prepare connection
+    conn = mariadb.connect(
+        user="testuser",
+        password="testpass",
+        host="db",
+        database="testdb")
+    cur = conn.cursor()
+    #prepare window
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plt.subplots_adjust(left=0.05, right =0.95, top=0.95, bottom=0.25)
 
-    root = tk.Tk()
-    root.withdraw() 
-    
-    file_path = filedialog.askopenfilename(
-        initialdir="/", # Start directory (e.g., C:/ on Windows, / on Linux/macOS)
-        title="Select a File",
-        filetypes=(("Text files", "*.txt"), ("All files", "*.*"))
-    )
-    
-    # Print the selected file path
-    if file_path:
-        print("Selected file:", file_path)
-    else:
-        print("No file selected.")
-    
-    # Destroy the hidden root window after selection
-    root.destroy()
-    visualize_2d_error(
-        image_path,
-        xml_path,
-        point_xml_path=point_xml_path
-    )
+    s_neigh = Slider(plt.axes([0.2, 0.21, 0.6, 0.03]), "Neighbour Margin", 165, 660)
+    s_bound = Slider(plt.axes([0.2, 0.17, 0.6, 0.03]), "Boundary Margin", 165, 660)
+    s_line  = Slider(plt.axes([0.2, 0.13, 0.6, 0.03]),  "Max Line Dist", 20, 80)
+    s_comp  = Slider(plt.axes([0.2, 0.09, 0.6, 0.03]), "Max Comp Offset Dist", 105, 420)
+    s_stitch= Slider(plt.axes([0.2, 0.05, 0.6, 0.03]), "Max Stitching Offset Dist", 315, 1260)
+
+    def on_open_click(val):
+        print("OPEN BUTTON WAS CLICKED")
+        DataLoader.open_image()
+
+    ax_bopen = plt.axes([0.925, 0.2, 0.05, 0.1])
+    bopen = Button(ax_bopen, 'Open', color="grey")
+    bopen.on_clicked(on_open_click)
+
+    def on_quit_click(val):
+        print("QUITTING PROGRAM")
+        conn.close()
+        plt.close('all')
+
+    ax_bquit = plt.axes([0.925, 0.3, 0.05, 0.1])
+    bquit = Button(ax_bquit, 'Quit', color="grey")
+    bquit.on_clicked(on_quit_click)
+    fig.canvas.mpl_connect('close_event', on_quit_click)
+
+    plt.show()
+    conn.close()

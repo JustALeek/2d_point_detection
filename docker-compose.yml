@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: geom_test
+      MYSQL_DATABASE: testdb
       MYSQL_USER: testuser
       MYSQL_PASSWORD: testpass
     ports:
@@ -34,7 +34,7 @@ services:
     command: sleep infinity
     environment:
       DB_HOST: db
-      DB_NAME: geom_test
+      DB_NAME: testdb
       DB_USER: testuser
       DB_PASSWORD: testpass
 
