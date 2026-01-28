@@ -1,7 +1,6 @@
 CREATE TABLE images(
     img_path VARCHAR(255) PRIMARY KEY NOT NULL,
-    xml_path VARCHAR(255) NOT NULL,
-    has_save BOOLEAN NOT NULL DEFAULT FALSE
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE slider_values(
@@ -19,13 +18,13 @@ CREATE TABLE polygons (
     polygon_index INT NOT NULL,
     label VARCHAR(255),
     vertices JSON NOT NULL,
-    PRIMARY KEY (img_path, polygon_index),
-    INDEX idx_img_path (img_path)
+    PRIMARY KEY (img_path, polygon_index)
 );
 
 CREATE TABLE connected_points (
     img_path VARCHAR(255) NOT NULL,
     boundary_linestring JSON NOT NULL,
+    layer VARCHAR(255) NOT NULL,
     point_index INT NOT NULL,         
     point_x DECIMAL(10, 6) NOT NULL,
     point_y DECIMAL(10, 6) NOT NULL,
@@ -33,13 +32,14 @@ CREATE TABLE connected_points (
     projected_point_x DECIMAL(10, 6),
     projected_point_y DECIMAL(10, 6),
     distance DECIMAL(10, 6),
-    PRIMARY KEY (img_path, boundary_linestring, point_index),
-    INDEX idx_img_poly (img_path, polygon_index)
+    PRIMARY KEY (img_path, point_index),
+    INDEX idx_img (img_path)
 );
 
-CREATE TABLE inner_connected_points (
+CREATE TABLE connected_inner_points (
     img_path VARCHAR(255) NOT NULL,
     boundary_linestring JSON NOT NULL,
+    layer VARCHAR(255) NOT NULL,
     point_index INT NOT NULL,        
     point_x DECIMAL(10, 6) NOT NULL,
     point_y DECIMAL(10, 6) NOT NULL,
@@ -47,6 +47,6 @@ CREATE TABLE inner_connected_points (
     projected_point_x DECIMAL(10, 6),
     projected_point_y DECIMAL(10, 6),
     distance DECIMAL(10, 6),
-    PRIMARY KEY (img_path, boundary_linestring, point_index),
-    INDEX idx_img_poly (img_path, polygon_index)
+    PRIMARY KEY (img_path, point_index),
+    INDEX idx_img (img_path)
 );

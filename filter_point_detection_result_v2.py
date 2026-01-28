@@ -909,7 +909,6 @@ def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None,
     
     # Component alignment
     matches, stitching_alignment_closest_boundary = ComponentProcessor.alignment_match(polygons)
-    print(matches)
     fig, ax = plt.subplots(figsize=(8, 8))
     plt.subplots_adjust(left=0.05, right =0.95, top=0.95, bottom=0.25)
 
@@ -954,7 +953,7 @@ def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None,
     def save_data(val):
         print("SAVE BUTTON WAS CLICKED")
        # DataLoader.save_visualization_to_xml()
-
+ 
     ax_button = plt.axes([0.925, 0.1, 0.05, 0.1])
     bsave = Button(ax_button, 'Save', color="grey")
     bsave.on_clicked(save_data)
