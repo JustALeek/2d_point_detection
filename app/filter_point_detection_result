@@ -1202,7 +1202,7 @@ class VisualizationProcessor:
         gc.collect()
         
 # ============================================================
-# VISUALIZATION PIPELINE
+# Currently acting as a pipeline? for locally stored data
 # ============================================================
 def process_raw_points(image_path, xml_path):
     polygons, points, inner_points, debug_fits = DataLoader.parse_xml(xml_path, image_path)
@@ -1311,7 +1311,7 @@ if __name__ == "__main__":
     fig.canvas.mpl_connect('close_event', on_quit_click)
 
     def on_open_click(val):
-        DataLoader.open_image() # THE PIPELINE IS SHATTERED!!! LOOK HERE NEXT
+        DataLoader.open_image() 
 
     ax_bopen = plt.axes([0.925, 0.2, 0.05, 0.1])
     bopen = Button(ax_bopen, 'Open', color="grey")
