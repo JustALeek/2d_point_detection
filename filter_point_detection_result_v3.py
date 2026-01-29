@@ -1,3 +1,4 @@
+#v3 - complete database save/load support
 from datetime import datetime
 import json
 import time
@@ -24,6 +25,7 @@ import tkinter as tk
 class DataLoader:
     @staticmethod
     def open_image():
+        VisualizationProcessor.clear_old_visualization()
         # open dialogbox to get the image path
         img_path = DataLoader.ask_for_image() 
 
@@ -151,24 +153,12 @@ class DataLoader:
 
     def load_dbdata(img_path):
         #Loading polygons
-        cur.execute("""
-            SELECT polygon_index, label, vertices
-            FROM polygons
-            WHERE img_path = %s
-            ORDER BY polygon_index
-            """, (img_path,))
-
-        polygons = []
-        
-
-        for polygon_index, label, vertices_json in cur:
-            vertices = json.loads(vertices_json)
-            coords = [(x, y) for x, y in vertices]
-            polygons.append({
-                "id": polygon_index,
-                "polygon": Polygon(coords),
-                "label": label
-            })
+        cur.execute("SELECT polygon_index, label, vertices FROM polygons WHERE img_path = %s", (img_path,))
+        rows = cur.fetchall()
+        polygons = [
+            {"id": r[0], "label": r[1], "polygon": Polygon(json.loads(r[2]))} 
+            for r in rows
+        ]
 
         #Loading points
         connected_points = DataLoader.load_points(img_path, "connected_points")
@@ -1132,6 +1122,16 @@ class VisualizationProcessor:
         vis_ax.clear()
         vis_ax.imshow(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
         vis_ax.axis("off")
+
+    def clear_old_visualization():
+        global connected_points, connected_inner_points, polygons
+        connected_points = None
+        connected_inner_points = None
+        polygons = None
+        ax.clear()
+        fig.canvas.draw_idle()
+        import gc
+        gc.collect()
         
 # ============================================================
 # VISUALIZATION PIPELINE
@@ -1159,9 +1159,9 @@ def process_raw_points(image_path, xml_path):
     return polygons, connected_points, connected_inner_points, slider_values
 
 def setup_sliders(img_path, polygons, connected_points, connected_inner_points, slider_values, start_time, msg):
+    mid_time = time.time()
     img = DataLoader.load_image(img_path)
     width_2d = DataLoader.get_2d_width(polygons)
-
     #load initial values
     s_neigh.set_val(slider_values["neighbour_margin_factor"])
     s_bound.set_val(slider_values["boundary_margin_factor"])
@@ -1189,19 +1189,21 @@ def setup_sliders(img_path, polygons, connected_points, connected_inner_points, 
                                                   int(width_2d/s_comp.val),
                                                   int(width_2d/s_stitch.val))
         fig.canvas.draw_idle()
-    
-    s_neigh.on_changed(update)
-    s_bound.on_changed(update)
-    s_line.on_changed(update)
-    s_comp.on_changed(update)
-    s_stitch.on_changed(update)
+
+    for slider in sliders:
+        if hasattr(slider, "update_id"):
+            slider.disconnect(slider.update_id)
+        slider.update_id = slider.on_changed(update)
     update(0.0)
 
-    end_time = time.time()
-    fig.suptitle(f"{msg} {end_time - start_time:.2f} seconds")
+    final_time = time.time()
+    fig.suptitle(f"{msg} {final_time - start_time:.2f} seconds, Load Time: {mid_time - start_time:.2f}")
+
+    if hasattr(bsave, "_cid"):
+        bsave.disconnect(bsave._cid)
 
     def on_save_click(val):
-        bsave.disconnect(bsave_id)
+        print("click")
         updated_slider_values = {
             "buffer_distance": 402,
             "neighbour_margin_factor": s_neigh.val,
@@ -1213,7 +1215,7 @@ def setup_sliders(img_path, polygons, connected_points, connected_inner_points, 
 
         DataLoader.save_dbdata(img_path, polygons, connected_points, connected_inner_points, updated_slider_values)
 
-    bsave_id = bsave.on_clicked(on_save_click)
+    bsave._cid = bsave.on_clicked(on_save_click)
 
 # ============================================================
 # MAIN
@@ -1236,6 +1238,7 @@ if __name__ == "__main__":
     s_line  = Slider(plt.axes([0.2, 0.13, 0.6, 0.03]), "Max Line Dist", 20, 80)
     s_comp  = Slider(plt.axes([0.2, 0.09, 0.6, 0.03]), "Max Comp Offset Dist", 105, 420)
     s_stitch= Slider(plt.axes([0.2, 0.05, 0.6, 0.03]), "Max Stitching Offset Dist", 315, 1260)
+    sliders = [s_neigh, s_bound, s_line, s_comp, s_stitch]
 
     ax_bsave = plt.axes([0.925, 0.1, 0.05, 0.1])
     bsave = Button(ax_bsave, 'Save', color="grey")
@@ -1253,6 +1256,8 @@ if __name__ == "__main__":
 
     ax_bopen = plt.axes([0.925, 0.2, 0.05, 0.1])
     bopen = Button(ax_bopen, 'Open', color="grey")
-    bopen.on_clicked(on_open_click)
+    if hasattr(bopen, "_cid"):
+        bopen.disconnect(bopen._cid)
+    bopen._cid = bopen.on_clicked(on_open_click)
     
     plt.show()
