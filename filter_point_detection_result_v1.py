@@ -855,6 +855,7 @@ def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None,
 
     # Component alignment
     matches, stitching_alignment_closest_boundary = ComponentProcessor.alignment_match(polygons)
+    print(matches)
 
     # Visualization base
     alpha = 0.7
@@ -890,7 +891,7 @@ def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None,
 if __name__ == "__main__":
     image_path = r"C:\Users\user\Downloads\2d_point_detection\orig_img\IMG_161122.jpg"
     xml_path = r"C:\Users\user\Downloads\2d_point_detection\annotations.xml"
-    point_xml_path = r"C:\Users\user\Downloads\2d_point_detection\pred\IMG_161122.xml"  # optional
+    point_xml_path = r"C:\Users\user\Downloads\2d_point_detection\xml\IMG_161122.xml"  # optional
     save_path = "./result.jpg"
 
     visualize_2d_error(
