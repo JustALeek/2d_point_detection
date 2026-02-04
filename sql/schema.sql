@@ -1,51 +1,49 @@
 CREATE TABLE images(
-    img_path VARCHAR(255) PRIMARY KEY NOT NULL,
-    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    img_name VARCHAR(255) PRIMARY KEY NOT NULL,
+    img_data LONGBLOB NOT NULL
 );
 
 CREATE TABLE slider_values(
-    img_path VARCHAR(255) PRIMARY KEY NOT NULL,
+    img_name VARCHAR(255) PRIMARY KEY NOT NULL,
     neighbour_margin_factor DECIMAL,
     boundary_margin_factor DECIMAL,
     max_connected_line_dist DECIMAL,
-    max_component_offset_distance DECIMAL,
-    max_stitching_offset_distance DECIMAL
+    max_component_offset_dist DECIMAL,
+    max_stitching_offset_dist DECIMAL
 );
 
 CREATE TABLE polygons (
-    img_path VARCHAR(255) NOT NULL,
-    polygon_index INT NOT NULL,
+    img_name VARCHAR(255) NOT NULL,
+    polygon_index INT,
     label VARCHAR(255),
-    vertices JSON NOT NULL,
-    PRIMARY KEY (img_path, polygon_index)
+    vertices JSON NULL,
+    PRIMARY KEY (img_name, polygon_index)
 );
 
 CREATE TABLE connected_points (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    img_path VARCHAR(255) NOT NULL,
-    boundary_linestring JSON NOT NULL,
-    layer VARCHAR(255) NOT NULL,
-    point_data JSON NOT NULL,
-    INDEX idx_img_path (img_path)
+    img_name VARCHAR(255) NOT NULL,
+    boundary_linestring JSON NULL,
+    layer VARCHAR(255) NULL,
+    point_data JSON NULL,
+    INDEX idx_img_name (img_name)
 );
 
 CREATE TABLE connected_inner_points (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    img_path VARCHAR(255) NOT NULL,
-    boundary_linestring JSON NOT NULL,
-    layer VARCHAR(255) NOT NULL,
-    point_data JSON NOT NULL,
-    INDEX idx_img_path (img_path)
+    img_name VARCHAR(255) NOT NULL,
+    boundary_linestring JSON NULL,
+    layer VARCHAR(255) NULL,
+    point_data JSON NULL,
+    INDEX idx_img_name (img_name)
 );
 
 CREATE TABLE matches (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    img_path VARCHAR(255) NOT NULL,
-    match_data JSON NOT NULL,
-    INDEX idx_img_path (img_path)
+    img_name VARCHAR(255) PRIMARY KEY,
+    match_data JSON NULL
 );
 
 CREATE TABLE stitching_alignment_closest_boundary (
-    img_path VARCHAR(255) PRIMARY KEY NOT NULL,
-    line_data TEXT NOT NULL
+    img_name VARCHAR(255) PRIMARY KEY,
+    lines_json JSON NULL
 );

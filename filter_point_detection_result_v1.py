@@ -124,7 +124,6 @@ class DataLoader:
         # Convert to simple Point lists
         point_neighbors = [p["point"] for p in points]
         inner_neighbors = [p["point"] for p in inner_points]
-
         # Sort overlap points by proximity to existing points
         def nearest_labeled_distance(op):
             p = op["point"]
@@ -835,7 +834,7 @@ def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None,
     img = DataLoader.load_image(image_path)
 
     polygons, points, inner_points, debug_fits = DataLoader.parse_xml(xml_path, image_path, point_xml_path)
-
+    print(polygons)
     if width_2d is None:
         width_2d = DataLoader.get_2d_width(polygons)
 
@@ -855,7 +854,6 @@ def visualize_2d_error(image_path, xml_path, point_xml_path=None, width_2d=None,
 
     # Component alignment
     matches, stitching_alignment_closest_boundary = ComponentProcessor.alignment_match(polygons)
-    print(matches)
 
     # Visualization base
     alpha = 0.7

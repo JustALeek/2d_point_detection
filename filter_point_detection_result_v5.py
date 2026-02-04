@@ -545,7 +545,7 @@ class GeometryProcessor:
                 mapping.setdefault(assigned_poly, []).append(idx)
 
         return mapping
- 
+     
     @staticmethod
     def combined_geometry(polygons, buffer_distance):
         """
